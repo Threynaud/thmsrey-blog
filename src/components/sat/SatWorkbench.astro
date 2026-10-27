@@ -1,0 +1,113 @@
+---
+// V4 — the fixed example formula with three switches.
+import './sat.css';
+import { clauseCardsHtml, switchHtml, verdictHtml } from './render';
+import { EXAMPLE, assignmentAt, bits, clauseValue, failedClauses } from './sat';
+
+// Everything starts off: turning a switch on is the natural first move.
+const start = [false, false, false];
+const rows = Array.from({ length: 8 }, (_, i) => assignmentAt(i, 3));
+const solutions = rows.filter((x) => failedClauses(EXAMPLE, x).length === 0).length;
+---
+
+<figure class="sat-widget" data-sat-workbench>
+	<div class="sat-switches" role="group" aria-label="Variables">
+		<Fragment set:html={EXAMPLE.vars.map((name, v) => switchHtml(name, v, start[v])).join('')} />
+	</div>
+
+	<ol class="sat-clauses" aria-label="The four rules (all must be happy)">
+		<Fragment set:html={clauseCardsHtml(EXAMPLE, start, 'Rule')} />
+	</ol>
+
+	<p class="sat-verdict" data-verdict>
+		<Fragment set:html={verdictHtml(EXAMPLE, start, { noun: 'rule', count: false })} />
+	</p>
+	<p class="sr-only" aria-live="polite" data-live></p>
+
+	<div class="sat-actions">
+		<button type="button" class="sat-button" data-set="110">Find a solution</button>
+		<button type="button" class="sat-button sat-button-quiet" data-set="000">Reset</button>
+	</div>
+
+	<details class="sat-details">
+		<summary>Show all 8 combinations</summary>
+		<div class="sat-table-scroll" tabindex="0" role="region" aria-label="Truth table for the example formula">
+			<table class="sat-table">
+				<thead>
+					<tr>
+						<th scope="col">a</th><th scope="col">b</th><th scope="col">c</th>
+						{EXAMPLE.clauses.map((_, i) => <th scope="col">Rule {i + 1}</th>)}
+						<th scope="col">Solved?</th>
+					</tr>
+				</thead>
+				<tbody>
+					{
+						rows.map((x) => {
+							const ok = failedClauses(EXAMPLE, x).length === 0;
+							return (
+								<tr data-row={bits(x)} class={ok ? 'is-sat' : 'is-unsat'} aria-current={bits(x) === bits(start) ? 'true' : undefined}>
+									{x.map((b) => <td>{b ? 'on' : 'off'}</td>)}
+									{EXAMPLE.clauses.map((c) => {
+										const cOk = clauseValue(c, x);
+										return (
+											<td class={cOk ? 'is-sat' : 'is-unsat'}>
+												<span class="sat-icon" aria-hidden="true">{cOk ? '✓' : '✗'}</span>
+												<span class="sr-only">{cOk ? 'happy' : 'unhappy'}</span>
+											</td>
+										);
+									})}
+									<td class={ok ? 'is-sat' : 'is-unsat'}><strong>{ok ? 'yes' : 'no'}</strong></td>
+								</tr>
+							);
+						})
+					}
+				</tbody>
+			</table>
+		</div>
+		<p class="sat-note">
+			<strong>{solutions} of the 8</strong> combinations solve the puzzle. Notice that each rule has exactly one ✗:
+			each rule rules out one single combination.
+		</p>
+	</details>
+</figure>
+
+<script>
+	import { clauseCardsHtml, verdictHtml, verdictText } from './render';
+	import { EXAMPLE, bits } from './sat';
+
+	for (const root of document.querySelectorAll<HTMLElement>('[data-sat-workbench]')) {
+		const x = [false, false, false];
+		const switches = [...root.querySelectorAll<HTMLButtonElement>('.sat-switch')];
+		const clauses = root.querySelector('.sat-clauses')!;
+		const verdict = root.querySelector('[data-verdict]')!;
+		const live = root.querySelector('[data-live]')!;
+		const rows = [...root.querySelectorAll<HTMLTableRowElement>('tr[data-row]')];
+
+		const render = (announce: boolean) => {
+			switches.forEach((s, v) => {
+				s.setAttribute('aria-checked', String(x[v]));
+				s.querySelector('.sat-switch-value')!.textContent = x[v] ? 'on' : 'off';
+			});
+			clauses.innerHTML = clauseCardsHtml(EXAMPLE, x, 'Rule');
+			verdict.innerHTML = verdictHtml(EXAMPLE, x, { noun: 'rule', count: false });
+			const current = bits(x);
+			rows.forEach((r) =>
+				r.dataset.row === current ? r.setAttribute('aria-current', 'true') : r.removeAttribute('aria-current'),
+			);
+			if (announce) live.textContent = verdictText(EXAMPLE, x, 'rule');
+		};
+
+		switches.forEach((s, v) =>
+			s.addEventListener('click', () => {
+				x[v] = !x[v];
+				render(true);
+			}),
+		);
+		root.querySelectorAll<HTMLButtonElement>('[data-set]').forEach((b) =>
+			b.addEventListener('click', () => {
+				[...b.dataset.set!].forEach((ch, v) => (x[v] = ch === '1'));
+				render(true);
+			}),
+		);
+	}
+</script>

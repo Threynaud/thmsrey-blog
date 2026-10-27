@@ -1,0 +1,211 @@
+---
+title: "What OpenAI's claimed ETH disproof would actually mean"
+description: 'A puzzle made of switches, why it seems to get impossibly hard, and the famous bet about it that OpenAI says it has won.'
+pubDate: 'Oct 27 2026'
+---
+
+import SatWorkbench from '../../components/sat/SatWorkbench.astro';
+import SatSearch from '../../components/sat/SatSearch.astro';
+import HaystackSize from '../../components/sat/HaystackSize.astro';
+import ExamTimetable from '../../components/sat/ExamTimetable.astro';
+import ReductionFlow from '../../components/sat/ReductionFlow.astro';
+
+*On 26 October 2026, [OpenAI announced](https://openai.com/index/building-scientific-understanding-with-academic-communities/) that it had disproved a famous conjecture about the limits of computers. Experts are still checking that claim. To understand what it is about, you don't need any background. You just need a few switches.*
+
+## A puzzle made of switches
+
+Imagine a panel with three switches, called *a*, *b* and *c*. Each one is either **on** or **off**.
+
+The puzzle comes with a short list of rules. Each rule names three switches and says which position it would like each of them to be in. For example:
+
+> *a* on, **or** *b* on, **or** *c* on.
+
+The important word is **or**. A rule is happy as soon as **at least one** of its three wishes comes true. It only complains when all three wishes are wrong at the same time.
+
+The goal is to find positions for the switches that make **every rule happy at the same time**. That's the whole puzzle.
+
+Here are four rules. Try flipping the switches: a highlighted wish is currently granted, and a crossed-out one is not.
+
+<SatWorkbench />
+
+At the start every switch is off, and rule 1 is unhappy: it wanted *a* on, *b* on or *c* on, and got none of the three. One unhappy rule is enough to spoil everything. Turning *a* on fixes rule 1… but now rule 2 complains, because it wanted *a* off, *b* on or *c* on. Fixing one rule broke another. Turn *b* on as well and all four rules are happy: puzzle solved.
+
+If you open the table of all 8 combinations, something stands out. **Each rule is unhappy in exactly one combination**: the one where all three of its wishes are refused. Rule 2, for instance, only complains when *a* is on, *b* is off and *c* is off. So each rule forbids one combination. Four rules forbid four of the eight combinations, and four solutions remain.
+
+### The puzzle has a name
+
+This puzzle is famous in computer science, and now that you've played with it, here is its vocabulary:
+
+- The rules are called **clauses**.
+- The puzzle is called **3-SAT**. The "3" is because every clause talks about (at most) three switches. "SAT" is short for *satisfiable*: can all the clauses be satisfied, that is, made happy, at once?
+
+A 3-SAT puzzle can have any number of switches and any number of clauses. Ours had 3 switches and 4 clauses, so it was easy. Let's make it harder.
+
+## More switches
+
+With three switches you can try every combination by hand. Let's add more. The puzzles below are made up at random, but each one is guaranteed to have at least one solution. Write "on" as **1** and "off" as **0**. Then a combination of switches is just a row of digits: *a* on, *b* off, *c* off is written **100**.
+
+To save space, the clauses below write "or" with the symbol mathematicians use: **∨**. So *a* on ∨ *b* off ∨ *c* on reads "*a* on, or *b* off, or *c* on".
+
+**First, try the 8-switch puzzle by hand.** You'll probably find that making one unhappy clause happy upsets another one. The red clauses are the unhappy ones.
+
+Under the switches is a **map**. Each little square is one combination of switch positions, and every possible combination appears exactly once. Flipping a switch moves you to another square. The squares you visit turn gray, or green if they are a solution.
+
+**Then press "Try everything".** The computer goes through the squares one by one, in order, until it finds a solution.
+
+<SatSearch />
+
+Things to try:
+
+- Keep the same speed and go from 8 to 12 to 16 switches. Watch the map fill up with squares, and watch the waiting time grow.
+- Look at how few squares are green. The solutions are needles; the map is the haystack.
+
+Trying every combination like this is called **brute force**. It always works eventually. The problem is *eventually*.
+
+## One more switch, twice the work
+
+Why does the map grow so fast? Start with 3 switches: 8 combinations. Now add a fourth switch, *d*. Each of the 8 old combinations can be followed by *d* on or by *d* off, which makes 16. Add a fifth switch: 32. **Every new switch doubles the number of combinations.**
+
+So with *n* switches, there are 2 × 2 × … × 2 combinations, with one 2 for each switch. Mathematicians write this as **2<sup>*n*</sup>**, read "2 to the power *n*". 2<sup>3</sup> = 8, 2<sup>10</sup> = 1,024, 2<sup>20</sup> = 1,048,576.
+
+Doubling sounds harmless, but it gets out of hand very quickly. Move the slider:
+
+<HaystackSize />
+
+Checking a single combination is quick: the computer reads through the clauses and checks that each one is happy. The trouble is how many combinations there are. With 50 switches, a computer checking a billion combinations per second needs about two weeks. With 100 switches it would need thousands of times the age of the universe. Real-world puzzles of this kind, like checking that a chip design has no bug or building a timetable, can have hundreds of thousands of switches.
+
+When the work multiplies by the same amount for every step up in size, like here, we say it grows **exponentially**. Brute force takes **exponential time**.
+
+## Can we do better than trying everything?
+
+Often, yes, and by a lot. Brute force is the most naive strategy there is. Real programs, called **SAT solvers**, use clever tricks. For example, as soon as a few switch positions make a clause unhappy, they skip every combination that starts with those positions. On the map, that would mean crossing out whole regions at once instead of visiting squares one by one. In practice, SAT solvers routinely solve huge real-world puzzles in seconds.
+
+But the tricks don't always work. Some puzzles are built so that the shortcuts barely help. On those hardest puzzles, every method anyone has found still slows down in the same basic way: **each extra switch multiplies the work by roughly the same factor.** The best methods have brought that factor down from 2 to about 1.3. That's a huge improvement, but the work still snowballs: with 1.3 instead of 2, you can afford a few more switches, not fundamentally more.
+
+After decades of failed attempts, many researchers came to believe the snowball can't be stopped: **no method, however clever, can solve every 3-SAT puzzle without exponential time.** In 1999, Russell Impagliazzo and Ramamohan Paturi turned that belief into a precise statement, the **Exponential Time Hypothesis**, or **ETH**. It is not proven. It is a bet, and a lot of other results in computer science were built on top of it.
+
+OpenAI now claims that the bet is wrong.
+
+Before getting to what that would mean, there is a fair question to ask: why would anyone care about a puzzle made of switches?
+
+## Why anyone cares about switches
+
+Here is a problem that real people solve every year. A school has six exams to fit into three slots: Monday morning, Monday afternoon and Tuesday morning. Some students take several of these subjects, and nobody can be in two exam rooms at once. So two exams that share students can't be in the same slot. When they are, we call it a **clash**.
+
+The list at the top of the widget below shows which exams share students, and how many. The timetable has one clash: 21 students take both Chemistry and Biology, and both exams are on Tuesday morning. Try to fix it. Drag an exam to another slot, or tap it and then tap the slot where it should go.
+
+<ExamTimetable />
+
+You'll probably run into the same thing as with the switches. Moving Biology away from Chemistry lands it next to Physics or History, which share students with it too. Every fix creates a new clash. There is a solution, but it takes more than one move. (Stuck? Maths and Biology can share a slot. Or press **Show solution**.)
+
+### The timetable is a switch puzzle
+
+Now press **As switches**. It's the same timetable, drawn differently. There is one switch for each exam and each slot. "Physics on Monday afternoon" is a switch, and it is on when Physics is on Monday afternoon. Six exams and three slots make 18 switches.
+
+The rules of the timetable become clauses, exactly like the rules of the switch puzzle:
+
+- **Each exam needs a slot:** *Maths on Mon morning* on ∨ *Maths on Mon afternoon* on ∨ *Maths on Tue morning* on.
+- **But only one:** *Maths on Mon morning* off ∨ *Maths on Mon afternoon* off, and so on for every pair of slots. The widget takes care of these for you: turning a switch on turns the others in its row off.
+- **No clashes:** for every two exams that share students, and for every slot, a clause like *Chemistry on Tue morning* off ∨ *Biology on Tue morning* off. It only complains when both switches are on, that is, when both exams are on Tuesday morning.
+
+Some of these clauses have only two wishes instead of three. That's allowed: a clause names at most three switches.
+
+That makes 51 clauses in total, and you can see them all under **Show all 51 clauses**. Every clash in the timetable is one unhappy clause, and a timetable with no clash is a position of the switches that makes every clause happy. Solve one and you have solved the other.
+
+So a program that is good at the switch puzzle is also good at exam timetables: translate the timetable into switches, solve, and translate back. Real scheduling tools sometimes work exactly like this, handing the problem to a SAT solver.
+
+### The same puzzle in many disguises
+
+Look at what the timetable really is: some things (the exams), a few labels to give them (the slots), and pairs of things that can't get the same label (the clashes). Mathematicians call this shape **graph colouring**, after its most famous example: colouring a map so that no two neighbouring countries get the same colour.
+
+Colouring is only one of many kinds of problems that can be written as switches and clauses. Once you start looking, they are everywhere:
+
+- **Colouring**, where things that conflict can't share a label:
+  - **Phone masts and Wi-Fi.** Two masts or Wi-Fi boxes close to each other can't use the same radio frequency, or they interfere.
+  - **Fibre-optic networks.** Two connections that share a stretch of fibre can't use the same wavelength of light. Here the colours are actual colours.
+  - **Compilers**, the programs that turn code into instructions for a processor. The processor has a handful of very fast storage slots, and two values needed at the same moment can't share one.
+  - **Storing chemicals.** Two products that react dangerously with each other can't go in the same cupboard.
+- **Hardware and software:**
+  - **Checking that a chip design has no bug** before building it. This is one of the biggest real-world uses of SAT solvers.
+  - **Checking that a program can't reach a bad state**, such as a crash, within a given number of steps.
+  - **Installing software.** Picking versions of packages that all work together is a switch puzzle, and some installers solve it with a SAT solver.
+- **Planning:**
+  - **Staff rosters**, such as nurses' shifts, with rules on rest days, skills and fairness.
+  - **Airline crews**: which pilots and flight attendants work which flights, given rest rules and where each crew member has to end up.
+  - **Sports fixtures**: who plays whom, when, and at home or away.
+  - **Delivery routes**: is there a round of all the stops shorter than 200 km?
+  - **Packing**: do these parcels fit in these three trucks?
+- **Biology and medicine:**
+  - **Kidney exchanges.** A patient whose willing donor is not a match can swap donors with other pairs in the same situation. The operations in a swap have to happen at the same time, so swaps are limited to small groups of two or three pairs. Arranging them so that as many patients as possible get a kidney is in the same hard family.
+  - **Reconstructing the family tree of species** from their DNA.
+  - **Folding simplified models of proteins.**
+
+### The translation works backwards too
+
+In the widget above, we translated a timetable into switches. The reverse is also possible: any switch puzzle, however big, can be turned into a timetable with three slots. That timetable can be made clash-free exactly when the switch puzzle has a solution, and the switch positions can be read off the finished timetable. The details don't matter here. What matters is that the conversion works both ways.
+
+The same is true for every problem in the list above. Each one can be translated into switches, and switches can be translated into each one. In that sense, they are all the same problem in different clothes.
+
+### What a translation tells you
+
+Turning one problem into another like this is called a **reduction**. It's a slippery idea, so let's take it slowly.
+
+Timetables translate into switches, so anyone who can solve switch puzzles can also solve timetables: translate, solve, translate back.
+
+Put differently, every timetable is a switch puzzle in disguise. A method that solves *every* switch puzzle also solves the disguised timetables, along with all the other switch puzzles. So switch puzzles can't be easier than timetables. We say that switch puzzles are **at least as hard** as timetables.
+
+It works like languages. Someone who speaks every European language also speaks French, because French is one of them. So speaking every European language is at least as hard as speaking French. "At least", because it could be much harder: it includes French and a lot more.
+
+And since the translation also works backwards, timetables are at least as hard as switch puzzles too. Each includes the other in disguise, so they are exactly as hard as each other.
+
+The same goes for speed. In this section, "fast" means "without exponential time": the work doesn't snowball. A fast method for switch puzzles gives a fast method for timetables, as long as the translation itself is quick and doesn't produce a much bigger puzzle. Both of our translations are fine on that front.
+
+Pick a scenario below to see what each translation lets you conclude. The highlighted arrow is the translation the argument uses.
+
+<ReductionFlow />
+
+Scenarios 1 and 2 are the easy direction. A fast method travels **against** the arrow: from the problem you know how to solve back to the problem that translates into it.
+
+Scenario 3 is the subtle one, and it's how many of the results built on ETH work. Nobody has managed to prove directly that timetables can't be built fast. What has been proven is the translation from switches to timetables. Put it together with the bet, and you get: if the bet is right, timetables are hard. Hardness travels **along** the arrow: from the problem we believe is hard to the problem it translates into.
+
+That is what computer scientists mean when they write that a problem is hard "under ETH". Not "this has been proven hard", but "this is hard if the ETH bet is right, because 3-SAT can be translated into it". Only that one direction is needed: the problem doesn't have to translate back into 3-SAT for the argument to work.
+
+Now suppose the bet is wrong, as OpenAI claims. Two things follow:
+
+- **Arguments like scenario 3 stop working.** The translations are still correct, but the arguments started from the bet, so their conclusions are no longer established. Take delivery routes: finding the shortest round through a list of stops. Computer scientists believe it can't be done without exponential time, and the main reason is that 3-SAT can be translated into it. If 3-SAT turns out to be easier than we thought, that reason disappears. Delivery routes might still be hard, or they might not: we simply don't know any more.
+- **Some problems can get faster, like in scenario 1.** For that, they need a translation *into* switches that doesn't make the puzzle much bigger. Timetables have one: 6 exams became 18 switches, so they would fall together with switch puzzles. Delivery routes are less lucky. The usual translation needs a switch for each stop and each position in the round, so 20 stops become 400 switches. A faster switch method doesn't automatically give a faster route method.
+
+Thousands of problems are linked to 3-SAT by reductions, and many results of the form "this can't be solved much faster than by trying everything" are proved exactly like scenario 3. That is why a claim about a puzzle made of switches is a claim about a large part of computer science.
+
+Delivery routes also show a catch: the size of a translation matters. Turning 6 exams into 18 switches is harmless, but turning 20 stops into 400 switches is not. We'll come back to that.
+
+## Why this is a big deal
+
+If OpenAI's claim holds up, here is what it would mean, in plain terms.
+
+**Something experts were confident about would turn out to be wrong.** For more than 25 years, the snowball was treated as a fact of life. It was never proven, but researchers believed it firmly enough to build on it: hundreds of results start with "assuming ETH". A disproof would be like finding out that a pillar holding up many buildings was never solid. The buildings don't collapse overnight, but every one of them has to be inspected.
+
+**Some problems would provably get faster.** A handful of famous problems are tied to 3-SAT so tightly, with compact translations in both directions, that they stand or fall with it. If 3-SAT stops needing exponential time, so do they, automatically: nobody has to study them one by one, the translations do the work. Among them:
+
+- **Colouring, with any fixed number of labels.** That's the whole first family of the list above: exam timetables, radio frequencies for phone masts and Wi-Fi, wavelengths in fibre networks, storage slots in compilers.
+- **Finding the biggest group in which everyone is connected to everyone**, like a circle of friends in a social network, or a cluster of proteins that all interact with each other.
+- **Picking as many things as possible with no two in conflict**, like choosing the largest team out of a list of candidates when some pairs can't work together.
+- **Placing as few guards as possible so that every corridor is watched**, or as few checkpoints as possible so that every road passes one.
+
+These problems sit inside scheduling software, network planning tools, compilers and data analysis. For each of them, a speed limit that experts believed in would be broken.
+
+**The map of what computers can't do would be redrawn.** Knowing that a problem is hard is valuable. It tells engineers to stop hunting for a perfect method and settle for good-enough answers, and it tells researchers where not to spend years. For problems like delivery routes, whose hardness rested on the bet, that map would go blank again, and the hunt would reopen.
+
+**There would be a new idea out there.** Many brilliant people tried to slow the snowball for decades and couldn't. If the proof is right, it contains a technique nobody had found, and new techniques tend to travel to other problems. Nobody knows yet where this one would lead.
+
+It is just as important to know what it would *not* mean:
+
+- **Your delivery app won't get faster tomorrow.** The claim is about how the work grows for gigantic puzzles, not a faster program you can run today.
+- **Hard puzzles don't become easy.** The work would still snowball, only a little less violently than everyone believed.
+- **It doesn't settle P versus NP**, the famous million-dollar question about whether hard puzzles like these can be solved efficiently. That question stays open.
+
+And it isn't confirmed yet. OpenAI says the proof is being examined by outside researchers led by Russell Impagliazzo, Ramamohan Paturi and Ryan Williams. The first two are the researchers who stated ETH in 1999: the people who made the bet are checking whether it was lost.
+
+The rest of this post goes one level deeper, for those who want it: how fast the snowball grows exactly, what "a little less violently" means, why the size of a translation matters so much, and what OpenAI's claim says precisely. If you stop here, you already have the gist.
+
+{/* TODO(next part): growth rates (V1), asymptotic notation (V2), 2^{o(n)} exponent explorer (V3), ETH stated properly, then reduction size (V6) and consequences. */}

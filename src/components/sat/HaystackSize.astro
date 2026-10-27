@@ -1,0 +1,52 @@
+---
+// V5 (big numbers) — how many combinations n switches give, and how long a
+// fast computer would need to check them all.
+import './sat.css';
+import { durationText, powerOfTwo } from './sat';
+
+const RATE = 1e9; // checks per second, illustrative
+const MAX_N = 300;
+const start = 20;
+const timeText = (n: number) => `${durationText(n * Math.log10(2) - Math.log10(RATE))}.`;
+---
+
+<figure class="sat-widget sat-haystack" data-haystack data-rate={RATE}>
+	<div class="sat-toolbar">
+		<label class="sat-field sat-field-range">
+			<span class="sat-range-value"><output data-n>{start}</output> switches</span>
+			<input
+				type="range"
+				min="1"
+				max={MAX_N}
+				value={start}
+				data-range
+				aria-valuetext={`${start} switches`}
+				aria-describedby="sat-haystack-readout"
+			/>
+		</label>
+	</div>
+
+	<div class="sat-readout" id="sat-haystack-readout">
+		<p class="sat-readout-big"><span data-count>{powerOfTwo(start)}</span> <span class="sat-readout-unit">combinations</span></p>
+		<p class="sat-readout-sub">Checking them all at a billion per second takes:</p>
+		<p class="sat-readout-time" data-time set:html={timeText(start)} />
+	</div>
+</figure>
+
+<script>
+	import { durationText, powerOfTwo } from './sat';
+
+	for (const root of document.querySelectorAll<HTMLElement>('[data-haystack]')) {
+		const rate = Number(root.dataset.rate);
+		const range = root.querySelector<HTMLInputElement>('[data-range]')!;
+		const nOut = root.querySelector('[data-n]')!;
+
+		range.addEventListener('input', () => {
+			const n = Number(range.value);
+			nOut.textContent = String(n);
+			range.setAttribute('aria-valuetext', `${n} switches`);
+			root.querySelector('[data-count]')!.textContent = powerOfTwo(n);
+			root.querySelector('[data-time]')!.innerHTML = `${durationText(n * Math.log10(2) - Math.log10(rate))}.`;
+		});
+	}
+</script>

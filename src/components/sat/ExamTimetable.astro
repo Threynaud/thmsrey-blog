@@ -1,0 +1,258 @@
+---
+// Part 2 — an exam timetable, and the same timetable written as switches.
+import './sat.css';
+import { START, TIMETABLE_FORMULA, allClausesHtml, boardHtml, gridHtml, pairsHtml, ttVerdictHtml, unhappyHtml } from './timetable';
+---
+
+<figure class="sat-widget sat-tt" data-timetable>
+	<div class="sat-toolbar">
+		<div class="sat-segmented" role="group" aria-label="View">
+			<button type="button" class="sat-seg" aria-pressed="true" data-view="timetable">Timetable</button>
+			<button type="button" class="sat-seg" aria-pressed="false" data-view="switches">As switches</button>
+		</div>
+	</div>
+
+	<div class="sat-tt-rules" data-rules>
+		<p class="sat-tt-rules-title">Students taking both exams:</p>
+		<ul class="sat-tt-pairs" data-pairs><Fragment set:html={pairsHtml(START)} /></ul>
+	</div>
+
+	<div class="sat-tt-board" data-board>
+		<Fragment set:html={boardHtml(START)} />
+	</div>
+
+	<div class="sat-tt-switches" data-switches hidden>
+		<div class="sat-tt-grid" data-grid><Fragment set:html={gridHtml(START)} /></div>
+		<ul class="sat-chips" data-unhappy aria-label="Unhappy clauses"><Fragment set:html={unhappyHtml(START)} /></ul>
+		<details class="sat-details">
+			<summary>Show all {TIMETABLE_FORMULA.clauses.length} clauses</summary>
+			<p class="sat-note">These are the timetable's rules, translated into switches.</p>
+			<div data-all><Fragment set:html={allClausesHtml(START)} /></div>
+		</details>
+	</div>
+
+	<div class="sat-tt-foot">
+		<p class="sat-verdict" data-verdict><Fragment set:html={ttVerdictHtml(START, 'timetable')} /></p>
+		<div class="sat-tt-buttons">
+			<button type="button" class="sat-button sat-button-quiet" data-solve>Show solution</button>
+			<button type="button" class="sat-button sat-button-quiet" data-reset>Reset</button>
+		</div>
+	</div>
+	<p class="sr-only" aria-live="polite" data-live></p>
+</figure>
+
+<script>
+	import {
+		EXAMS,
+		SLOTS,
+		START,
+		allClausesHtml,
+		boardHtml,
+		clashesIn,
+		gridHtml,
+		nearestSolution,
+		pairsHtml,
+		ttVerdictHtml,
+		unhappyHtml,
+	} from './timetable';
+
+	type View = 'timetable' | 'switches';
+
+	for (const root of document.querySelectorAll<HTMLElement>('[data-timetable]')) {
+		const t = [...START];
+		let view: View = 'timetable';
+		let picked: number | null = null;
+		const expanded = new Set<number>();
+
+		const board = root.querySelector<HTMLElement>('[data-board]')!;
+		const switches = root.querySelector<HTMLElement>('[data-switches]')!;
+		const grid = root.querySelector<HTMLElement>('[data-grid]')!;
+		const unhappy = root.querySelector<HTMLElement>('[data-unhappy]')!;
+		const rules = root.querySelector<HTMLElement>('[data-rules]')!;
+		const pairs = root.querySelector<HTMLElement>('[data-pairs]')!;
+		const all = root.querySelector<HTMLElement>('[data-all]')!;
+		const solve = root.querySelector<HTMLButtonElement>('[data-solve]')!;
+		const verdict = root.querySelector<HTMLElement>('[data-verdict]')!;
+		const live = root.querySelector<HTMLElement>('[data-live]')!;
+		const viewButtons = [...root.querySelectorAll<HTMLButtonElement>('[data-view]')];
+
+		const render = () => {
+			board.innerHTML = boardHtml(t);
+			grid.innerHTML = gridHtml(t);
+			unhappy.innerHTML = unhappyHtml(t);
+			pairs.innerHTML = pairsHtml(t);
+			all.innerHTML = allClausesHtml(t, expanded);
+			verdict.innerHTML = ttVerdictHtml(t, view);
+			board.hidden = view !== 'timetable';
+			rules.hidden = view !== 'timetable';
+			solve.hidden = view !== 'timetable';
+			switches.hidden = view !== 'switches';
+			viewButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === view)));
+			board.classList.toggle('is-picking', picked !== null);
+			if (picked !== null) {
+				board.querySelector(`.sat-tt-card[data-exam="${picked}"]`)?.setAttribute('aria-pressed', 'true');
+				board.querySelector(`.sat-tt-slot[data-slot="${t[picked]}"]`)?.classList.add('is-origin');
+				board.querySelectorAll<HTMLButtonElement>('.sat-tt-drop').forEach((d) => {
+					d.textContent = `Move ${EXAMS[picked!]} here`;
+				});
+			}
+		};
+
+		const summary = () => {
+			const c = clashesIn(t);
+			return c.length
+				? `${c.length} clash${c.length > 1 ? 'es' : ''}: ${c.map(([a, b]) => `${EXAMS[a]} and ${EXAMS[b]}`).join(', ')}.`
+				: 'No clashes. Everyone can sit all their exams.';
+		};
+
+		const move = (e: number, s: number, focus: 'card' | 'switch' | null) => {
+			picked = null;
+			const changed = t[e] !== s;
+			t[e] = s;
+			render();
+			if (focus === 'card') board.querySelector<HTMLElement>(`.sat-tt-card[data-exam="${e}"]`)?.focus();
+			if (focus === 'switch') grid.querySelector<HTMLElement>(`[data-exam="${e}"][data-slot="${s}"]`)?.focus();
+			if (changed) live.textContent = `${EXAMS[e]} moved to ${SLOTS[s].day} ${SLOTS[s].time}. ${summary()}`;
+		};
+
+		const pick = (e: number | null) => {
+			picked = e;
+			render();
+			if (e !== null) board.querySelector<HTMLElement>(`.sat-tt-card[data-exam="${e}"]`)?.focus();
+		};
+
+		// ----- Tap a card, then tap a slot (works for touch, mouse and keyboard) -----
+		let suppressClick = false;
+		board.addEventListener('click', (ev) => {
+			if (suppressClick) {
+				suppressClick = false;
+				return;
+			}
+			const target = ev.target as HTMLElement;
+			const card = target.closest<HTMLElement>('.sat-tt-card');
+			const slot = target.closest<HTMLElement>('.sat-tt-slot');
+			const drop = target.closest<HTMLElement>('.sat-tt-drop');
+			if (drop && picked !== null) return move(picked, Number(drop.dataset.drop), 'card');
+			if (picked !== null && slot && Number(slot.dataset.slot) !== t[picked]) {
+				return move(picked, Number(slot.dataset.slot), 'card');
+			}
+			if (card) {
+				const e = Number(card.dataset.exam);
+				return pick(picked === e ? null : e);
+			}
+			if (picked !== null) pick(null);
+		});
+
+		board.addEventListener('keydown', (ev) => {
+			const card = (ev.target as HTMLElement).closest<HTMLElement>('.sat-tt-card');
+			if (ev.key === 'Escape' && picked !== null) {
+				const e = picked;
+				pick(null);
+				board.querySelector<HTMLElement>(`.sat-tt-card[data-exam="${e}"]`)?.focus();
+				return;
+			}
+			if (!card || (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight')) return;
+			ev.preventDefault();
+			const e = Number(card.dataset.exam);
+			const s = t[e] + (ev.key === 'ArrowLeft' ? -1 : 1);
+			if (s >= 0 && s < SLOTS.length) move(e, s, 'card');
+		});
+
+		// ----- Drag with a mouse or pen (touch keeps scrolling the page) -----
+		let drag: { e: number; x: number; y: number; ghost: HTMLElement | null; card: HTMLElement } | null = null;
+
+		const slotAt = (x: number, y: number) =>
+			document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-timetable] .sat-tt-slot') ?? null;
+
+		board.addEventListener('pointerdown', (ev) => {
+			const card = (ev.target as HTMLElement).closest<HTMLElement>('.sat-tt-card');
+			if (!card || ev.pointerType === 'touch' || ev.button !== 0) return;
+			drag = { e: Number(card.dataset.exam), x: ev.clientX, y: ev.clientY, ghost: null, card };
+		});
+
+		window.addEventListener('pointermove', (ev) => {
+			if (!drag) return;
+			if (!drag.ghost) {
+				if (Math.hypot(ev.clientX - drag.x, ev.clientY - drag.y) < 5) return;
+				const r = drag.card.getBoundingClientRect();
+				const ghost = drag.card.cloneNode(true) as HTMLElement;
+				ghost.classList.add('sat-tt-ghost');
+				ghost.style.width = `${r.width}px`;
+				ghost.style.left = `${r.left}px`;
+				ghost.style.top = `${r.top}px`;
+				root.appendChild(ghost);
+				drag.ghost = ghost;
+				drag.x -= r.left;
+				drag.y -= r.top;
+				drag.card.classList.add('is-dragging');
+				picked = null;
+				board.classList.add('is-dragging');
+			}
+			drag.ghost.style.left = `${ev.clientX - drag.x}px`;
+			drag.ghost.style.top = `${ev.clientY - drag.y}px`;
+			const over = slotAt(ev.clientX, ev.clientY);
+			board.querySelectorAll('.sat-tt-slot').forEach((s) => s.classList.toggle('is-over', s === over));
+		});
+
+		window.addEventListener('pointerup', (ev) => {
+			if (!drag) return;
+			const { e, ghost } = drag;
+			drag = null;
+			if (!ghost) return;
+			ghost.remove();
+			board.classList.remove('is-dragging');
+			suppressClick = true;
+			setTimeout(() => (suppressClick = false), 0);
+			const over = slotAt(ev.clientX, ev.clientY);
+			if (over && board.contains(over)) move(e, Number(over.dataset.slot), null);
+			else render();
+		});
+
+		// ----- Switch view -----
+		grid.addEventListener('click', (ev) => {
+			const sw = (ev.target as HTMLElement).closest<HTMLElement>('.sat-tt-sw');
+			if (!sw) return;
+			const e = Number(sw.dataset.exam);
+			const s = Number(sw.dataset.slot);
+			if (t[e] === s) {
+				live.textContent = `${EXAMS[e]} needs a slot: turn on another switch in its row to move it.`;
+				return;
+			}
+			move(e, s, 'switch');
+		});
+
+		viewButtons.forEach((b) =>
+			b.addEventListener('click', () => {
+				view = b.dataset.view as View;
+				picked = null;
+				render();
+			}),
+		);
+
+		all.addEventListener('click', (ev) => {
+			const more = (ev.target as HTMLElement).closest<HTMLElement>('[data-more]');
+			if (!more) return;
+			const gi = Number(more.dataset.more);
+			expanded.add(gi);
+			render();
+			all.querySelectorAll<HTMLElement>('.sat-chips')[gi]?.focus();
+		});
+
+		solve.addEventListener('click', () => {
+			t.splice(0, t.length, ...nearestSolution(t));
+			picked = null;
+			render();
+			live.textContent = `Solution shown. ${summary()}`;
+		});
+
+		root.querySelector('[data-reset]')!.addEventListener('click', () => {
+			t.splice(0, t.length, ...START);
+			picked = null;
+			expanded.clear();
+			render();
+			live.textContent = `Back to the starting timetable. ${summary()}`;
+		});
+
+		render();
+	}
+</script>

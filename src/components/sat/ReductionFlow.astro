@@ -1,0 +1,71 @@
+---
+// Part 2 — what a translation (reduction) between switch puzzles and
+// timetables lets us conclude, in three "what if" scenarios.
+import './sat.css';
+import { SCENARIOS, flowStepsHtml, statusHtml } from './reduction';
+
+const start = 0;
+const s = SCENARIOS[start];
+---
+
+<figure class="sat-widget sat-flow" data-flow>
+	<p class="sat-flow-ask">What if…</p>
+	<div class="sat-flow-choices" role="group" aria-label="Scenario">
+		{
+			SCENARIOS.map((sc, i) => (
+				<button type="button" class="sat-flow-choice" aria-pressed={String(i === start)} data-scenario={i}>
+					<span class="sat-flow-choice-n">{i + 1}</span>
+					{sc.label}
+				</button>
+			))
+		}
+	</div>
+
+	<div class="sat-flow-diagram" data-arrow={s.arrow}>
+		<div class="sat-flow-node" data-node="sat">
+			<span class="sat-flow-name">Switch puzzles</span>
+			<span class="sat-flow-sub">3-SAT</span>
+			<span data-status="sat"><Fragment set:html={statusHtml(s.sat)} /></span>
+		</div>
+		<div class="sat-flow-arrows" aria-hidden="true">
+			<div class="sat-flow-arrow is-left" data-way="tt-to-sat">
+				<span class="sat-flow-arrow-label">timetable → switches</span>
+				<span class="sat-flow-line"></span>
+			</div>
+			<div class="sat-flow-arrow is-right" data-way="sat-to-tt">
+				<span class="sat-flow-line"></span>
+				<span class="sat-flow-arrow-label">switches → timetable</span>
+			</div>
+		</div>
+		<div class="sat-flow-node" data-node="tt">
+			<span class="sat-flow-name">Exam timetables</span>
+			<span class="sat-flow-sub">3 slots</span>
+			<span data-status="tt"><Fragment set:html={statusHtml(s.tt)} /></span>
+		</div>
+	</div>
+
+	<div class="sat-flow-reasoning" data-steps aria-live="polite">
+		<Fragment set:html={flowStepsHtml(s)} />
+	</div>
+</figure>
+
+<script>
+	import { SCENARIOS, flowStepsHtml, statusHtml } from './reduction';
+
+	for (const root of document.querySelectorAll<HTMLElement>('[data-flow]')) {
+		const diagram = root.querySelector<HTMLElement>('.sat-flow-diagram')!;
+		const steps = root.querySelector<HTMLElement>('[data-steps]')!;
+		const choices = [...root.querySelectorAll<HTMLButtonElement>('[data-scenario]')];
+
+		choices.forEach((b) =>
+			b.addEventListener('click', () => {
+				const s = SCENARIOS[Number(b.dataset.scenario)];
+				choices.forEach((c) => c.setAttribute('aria-pressed', String(c === b)));
+				diagram.dataset.arrow = s.arrow;
+				root.querySelector('[data-status="sat"]')!.innerHTML = statusHtml(s.sat);
+				root.querySelector('[data-status="tt"]')!.innerHTML = statusHtml(s.tt);
+				steps.innerHTML = flowStepsHtml(s);
+			}),
+		);
+	}
+</script>

@@ -1,0 +1,398 @@
+---
+// V5 — bigger puzzles, the map of every assignment, and a brute-force sweep.
+import './sat.css';
+import { clauseChipsHtml, switchHtml, verdictHtml } from './render';
+import { DEFAULT_SIZE, PUZZLE_SIZES, defaultSeed, fmtInt, puzzleFor } from './sat';
+
+const SPEEDS = [4, 64, 1024, 16384];
+const puzzle = puzzleFor(DEFAULT_SIZE, defaultSeed(DEFAULT_SIZE));
+const start = puzzle.vars.map(() => false);
+---
+
+<figure class="sat-widget sat-search" data-sat-search data-size={DEFAULT_SIZE}>
+	<div class="sat-toolbar">
+		<span class="sat-toolbar-label" id="sat-size-label">Switches</span>
+		<div class="sat-segmented" role="group" aria-labelledby="sat-size-label">
+			{
+				PUZZLE_SIZES.map((n) => (
+					<button type="button" class="sat-seg" data-size={n} aria-pressed={n === DEFAULT_SIZE ? 'true' : 'false'}>
+						{n}
+					</button>
+				))
+			}
+		</div>
+	</div>
+
+	<div class="sat-switches is-compact" role="group" aria-label="Variables" data-switches>
+		<Fragment set:html={puzzle.vars.map((name, v) => switchHtml(name, v, start[v], true)).join('')} />
+	</div>
+
+	<p class="sat-verdict" data-verdict><Fragment set:html={verdictHtml(puzzle, start, { status: false })} /></p>
+
+	<ol class="sat-chips" aria-label="Clauses" data-chips>
+		<Fragment set:html={clauseChipsHtml(puzzle, start)} />
+	</ol>
+
+	<div class="sat-map-panel">
+		<div class="sat-map-frame" data-map-frame>
+			<canvas class="sat-map" role="img" aria-label="Map of all 8 combinations." data-map></canvas>
+			<noscript><p class="sat-note">The map and brute-force search need JavaScript.</p></noscript>
+		</div>
+		<p class="sat-map-hover" data-hover>Click a square to try that combination.</p>
+		<ul class="sat-legend" aria-label="Map legend">
+			<li><span class="sat-swatch is-untested" aria-hidden="true"></span>not checked yet</li>
+			<li><span class="sat-swatch is-checked" aria-hidden="true"></span>checked: not a solution</li>
+			<li><span class="sat-swatch is-solution" aria-hidden="true">✓</span>checked: a solution</li>
+		</ul>
+	</div>
+
+	<div class="sat-brute">
+		<div class="sat-brute-controls">
+			<button type="button" class="sat-button" data-action="run">Try everything</button>
+			<button type="button" class="sat-button sat-button-quiet" data-action="clear">Reset</button>
+			<label class="sat-field">
+				<span>Speed</span>
+				<select data-speed>
+					{SPEEDS.map((s) => <option value={s} selected={s === 64}>{fmtInt(s)} checks/s</option>)}
+				</select>
+			</label>
+		</div>
+		<dl class="sat-stats">
+			<div><dt>Checked</dt><dd data-checked>0 of 8</dd></div>
+			<div><dt>Solutions found</dt><dd data-found>0</dd></div>
+		</dl>
+		<p class="sat-message" data-message></p>
+	</div>
+	<p class="sr-only" aria-live="polite" data-live></p>
+
+</figure>
+
+<script>
+	import { clauseChipsHtml, switchHtml, verdictHtml, verdictText } from './render';
+	import {
+		EXAMPLE,
+		type Formula,
+		assignmentAt,
+		bits,
+		defaultSeed,
+		fmtInt,
+		indexOf,
+		puzzleFor,
+		solutionMap,
+	} from './sat';
+
+	const MAX_MAP_HEIGHT = 360;
+
+	document.querySelectorAll<HTMLElement>('[data-sat-search]').forEach((root) => {
+		const $ = <T extends Element = HTMLElement>(sel: string) => root.querySelector<T>(sel)!;
+		const switchesEl = $('[data-switches]');
+		const chipsEl = $('[data-chips]');
+		const verdictEl = $('[data-verdict]');
+		const canvas = $<HTMLCanvasElement>('[data-map]');
+		const frame = $('[data-map-frame]');
+		const hoverEl = $('[data-hover]');
+		const runBtn = $<HTMLButtonElement>('[data-action="run"]');
+		const speedEl = $<HTMLSelectElement>('[data-speed]');
+		const live = $('[data-live]');
+		const message = $('[data-message]');
+
+		// ---------- state ----------
+		let n = 3;
+		let f: Formula = EXAMPLE;
+		let sol = solutionMap(f);
+		let x = Array<boolean>(n).fill(false);
+		let checked = new Uint8Array(1 << n);
+		let checkedCount = 0;
+		let foundCount = 0;
+		let cursor = 0; // next assignment brute force will check
+		let bruteStarted = false;
+		let running = false;
+		let done = false;
+		let carry = 0;
+		let lastTime = 0;
+
+		const total = () => 1 << n;
+		const speed = () => Number(speedEl.value);
+
+		// ---------- map geometry & drawing ----------
+		let geo = { cols: 4, rows: 2, cell: 1, w: 0, h: 0 };
+		let colors: Record<string, string> = {};
+
+		const readColors = () => {
+			const cs = getComputedStyle(root);
+			const v = (name: string) => cs.getPropertyValue(name).trim();
+			colors = {
+				untested: v('--sat-cell-untested'),
+				checked: v('--sat-cell-checked'),
+				solution: v('--sat-good'),
+				current: v('--heading'),
+				onSolution: '#ffffff',
+				bg: v('--bg'),
+			};
+		};
+
+		const layout = () => {
+			const cols = 1 << Math.ceil(n / 2);
+			const rows = 1 << Math.floor(n / 2);
+			const avail = frame.clientWidth;
+			const w = Math.min(avail, (MAX_MAP_HEIGHT * cols) / rows);
+			const cell = w / cols;
+			geo = { cols, rows, cell, w, h: cell * rows };
+			const dpr = window.devicePixelRatio || 1;
+			canvas.style.width = `${w}px`;
+			canvas.style.height = `${geo.h}px`;
+			canvas.width = Math.round(w * dpr);
+			canvas.height = Math.round(geo.h * dpr);
+			canvas.getContext('2d')!.setTransform(dpr, 0, 0, dpr, 0, 0);
+		};
+
+		const ctx = () => canvas.getContext('2d')!;
+
+		const drawCell = (i: number) => {
+			const c = ctx();
+			const { cols, cell } = geo;
+			const gap = cell >= 24 ? 2 : cell >= 6 ? 1 : 0;
+			const px = (i % cols) * cell;
+			const py = Math.floor(i / cols) * cell;
+			const isCurrent = i === indexOf(x);
+			const state = !checked[i] ? 'untested' : sol[i] ? 'solution' : 'checked';
+			c.clearRect(px, py, cell, cell);
+			c.fillStyle = isCurrent && cell < 10 ? colors.current : colors[state];
+			const r = cell >= 24 ? 4 : 0;
+			c.beginPath();
+			if (r && c.roundRect) c.roundRect(px + gap / 2, py + gap / 2, cell - gap, cell - gap, r);
+			else c.rect(px + gap / 2, py + gap / 2, cell - gap, cell - gap);
+			c.fill();
+			if (isCurrent && cell >= 10) {
+				c.lineWidth = cell >= 24 ? 3 : 2;
+				c.strokeStyle = colors.current;
+				const inset = gap / 2 + c.lineWidth / 2;
+				c.beginPath();
+				if (r && c.roundRect) c.roundRect(px + inset, py + inset, cell - 2 * inset, cell - 2 * inset, r);
+				else c.rect(px + inset, py + inset, cell - 2 * inset, cell - 2 * inset);
+				c.stroke();
+			}
+			// Mark solutions with a check mark when there is room, a dot otherwise.
+			if (state === 'solution' && cell >= 24) {
+				c.font = `600 ${Math.min(28, cell / 2.5)}px system-ui, sans-serif`;
+				c.textAlign = 'center';
+				c.textBaseline = 'middle';
+				c.fillStyle = colors.onSolution;
+				c.fillText('✓', px + cell / 2, py + cell / 2);
+			} else if (state === 'solution' && cell >= 8) {
+				c.fillStyle = colors.onSolution;
+				c.beginPath();
+				c.arc(px + cell / 2, py + cell / 2, Math.max(1.2, cell / 7), 0, Math.PI * 2);
+				c.fill();
+			}
+		};
+
+		const drawAll = () => {
+			readColors();
+			layout();
+			ctx().clearRect(0, 0, geo.w, geo.h);
+			for (let i = 0; i < total(); i++) drawCell(i);
+		};
+
+		// ---------- rendering the rest ----------
+		const renderSwitches = () => {
+			switchesEl.innerHTML = f.vars.map((name, v) => switchHtml(name, v, x[v], true)).join('');
+		};
+
+		const updateSwitches = () => {
+			switchesEl.querySelectorAll<HTMLButtonElement>('.sat-switch').forEach((s, v) => {
+				s.setAttribute('aria-checked', String(x[v]));
+				s.querySelector('.sat-switch-value')!.textContent = x[v] ? '1' : '0';
+			});
+		};
+
+
+		const render = () => {
+			updateSwitches();
+			chipsEl.innerHTML = clauseChipsHtml(f, x);
+			verdictEl.innerHTML = verdictHtml(f, x, { status: false });
+			$('[data-checked]').textContent = `${fmtInt(checkedCount)} of ${fmtInt(total())}`;
+			$('[data-found]').textContent = fmtInt(foundCount);
+			canvas.setAttribute(
+				'aria-label',
+				`Map of all ${fmtInt(total())} combinations: ${fmtInt(checkedCount)} checked, ${fmtInt(foundCount)} solutions found. Switches currently at ${bits(x)}.`,
+			);
+			runBtn.textContent = running ? 'Pause' : bruteStarted && !done ? 'Resume' : 'Try everything';
+			runBtn.setAttribute('aria-pressed', String(running));
+		};
+
+		const say = (text: string) => {
+			message.textContent = text;
+			live.textContent = text;
+		};
+
+		/** Evaluate assignment i and colour its cell. Returns true if it is a solution. */
+		const visit = (i: number) => {
+			if (!checked[i]) {
+				checked[i] = 1;
+				checkedCount++;
+				if (sol[i]) foundCount++;
+			}
+			return sol[i] === 1;
+		};
+
+		const moveTo = (next: boolean[]) => {
+			const prev = indexOf(x);
+			x = next;
+			drawCell(prev);
+			drawCell(indexOf(x));
+		};
+
+		// ---------- brute force ----------
+		const clearSearch = () => {
+			stop();
+			checked = new Uint8Array(total());
+			checkedCount = foundCount = cursor = 0;
+			bruteStarted = done = false;
+			say('');
+		};
+
+		const finish = (text: string) => {
+			done = true;
+			stop();
+			say(text);
+		};
+
+		/** Check the next assignment in counting order. */
+		const checkNext = () => {
+			const i = cursor++;
+			const prev = indexOf(x);
+			x = assignmentAt(i, n);
+			const isSolution = visit(i);
+			drawCell(prev);
+			drawCell(i);
+			if (isSolution) {
+				finish(`Found a solution after checking ${fmtInt(cursor)} of ${fmtInt(total())} combinations.`);
+			} else if (cursor >= total()) {
+				finish(`Checked all ${fmtInt(total())} combinations.`);
+			}
+		};
+
+		const beginIfNeeded = () => {
+			if (bruteStarted && !done) return;
+			clearSearch();
+			bruteStarted = true;
+			drawAll();
+		};
+
+		const frameStep = (t: number) => {
+			if (!running) return;
+			const dt = Math.min(0.1, (t - lastTime) / 1000);
+			lastTime = t;
+			carry += dt * speed();
+			while (carry >= 1 && running) {
+				carry -= 1;
+				checkNext();
+			}
+			render();
+			if (running) requestAnimationFrame(frameStep);
+		};
+
+		function stop() {
+			running = false;
+		}
+
+		runBtn.addEventListener('click', () => {
+			if (running) {
+				stop();
+				render();
+				return;
+			}
+			beginIfNeeded();
+			say('');
+			running = true;
+			carry = 1; // check the first assignment immediately
+			lastTime = performance.now();
+			render();
+			requestAnimationFrame(frameStep);
+		});
+
+		$('[data-action="clear"]').addEventListener('click', () => {
+			clearSearch();
+			visit(indexOf(x));
+			drawAll();
+			render();
+		});
+
+		speedEl.addEventListener('change', render);
+
+		// ---------- manual exploration ----------
+		switchesEl.addEventListener('click', (e) => {
+			const s = (e.target as Element).closest<HTMLButtonElement>('.sat-switch');
+			if (!s) return;
+			stop();
+			const next = [...x];
+			next[Number(s.dataset.var)] = !next[Number(s.dataset.var)];
+			moveTo(next);
+			const hit = visit(indexOf(x));
+			drawCell(indexOf(x));
+			render();
+			if (hit) say(`You found a solution by hand after trying ${fmtInt(checkedCount)} combinations.`);
+			else live.textContent = verdictText(f, x);
+		});
+
+		const cellAt = (e: MouseEvent) => {
+			const rect = canvas.getBoundingClientRect();
+			const col = Math.floor((e.clientX - rect.left) / geo.cell);
+			const row = Math.floor((e.clientY - rect.top) / geo.cell);
+			if (col < 0 || row < 0 || col >= geo.cols || row >= geo.rows) return -1;
+			return row * geo.cols + col;
+		};
+
+		canvas.addEventListener('click', (e) => {
+			const i = cellAt(e);
+			if (i < 0) return;
+			stop();
+			moveTo(assignmentAt(i, n));
+			visit(i);
+			drawCell(i);
+			render();
+			live.textContent = verdictText(f, x);
+		});
+
+		const defaultHover = 'Click a square to try that combination.';
+		canvas.addEventListener('mousemove', (e) => {
+			const i = cellAt(e);
+			if (i < 0) return;
+			const state = !checked[i] ? 'not checked yet' : sol[i] ? 'a solution' : 'fails at least one clause';
+			hoverEl.textContent = `${f.vars.join('')} = ${bits(assignmentAt(i, n))} — ${state}`;
+		});
+		canvas.addEventListener('mouseleave', () => (hoverEl.textContent = defaultHover));
+
+		// ---------- puzzles ----------
+		// One fixed puzzle per size, so every reader sees the same thing.
+		const load = (size: number) => {
+			stop();
+			n = size;
+			f = puzzleFor(n, defaultSeed(n));
+			sol = solutionMap(f);
+			x = Array<boolean>(n).fill(false);
+			clearSearch();
+			visit(0);
+			renderSwitches();
+			root.querySelectorAll<HTMLButtonElement>('[data-size]').forEach((b) =>
+				b.setAttribute('aria-pressed', String(Number(b.dataset.size) === n)),
+			);
+			hoverEl.textContent = defaultHover;
+			drawAll();
+			render();
+		};
+
+		root.querySelectorAll<HTMLButtonElement>('[data-size]').forEach((b) =>
+			b.addEventListener('click', () => load(Number(b.dataset.size))),
+		);
+
+		new ResizeObserver(() => drawAll()).observe(frame);
+		new MutationObserver(() => drawAll()).observe(document.documentElement, {
+			attributes: true,
+			attributeFilter: ['data-theme'],
+		});
+
+		load(Number(root.dataset.size));
+	});
+</script>
